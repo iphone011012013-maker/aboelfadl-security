@@ -6,8 +6,8 @@ const https = require('https');
 // ==========================================
 // ⚙️ الإعدادات
 // ==========================================
-const BOT_TOKEN = process.env.TELEGRAM_TOKEN || "YOUR_BOT_TOKEN_HERE"; 
-const ADMIN_ID = process.env.ADMIN_ID || "YOUR_ID_HERE"; 
+const BOT_TOKEN = process.env.TELEGRAM_TOKEN || "8519648833:AAHeg8gNX7P1UZabWKcqeFJv0NAggRzS3Qs"; 
+const ADMIN_ID = process.env.ADMIN_ID || "1431886140"; 
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 // ==========================================
