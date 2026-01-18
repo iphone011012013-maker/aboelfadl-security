@@ -6,9 +6,62 @@ const https = require('https');
 // ==========================================
 // ⚙️ الإعدادات
 // ==========================================
+// ⚠️ تأكد من وضع التوكن والـ ID الخاص بك هنا بدلاً من النصوص المؤقتة
 const BOT_TOKEN = process.env.TELEGRAM_TOKEN || "8519648833:AAHeg8gNX7P1UZabWKcqeFJv0NAggRzS3Qs"; 
 const ADMIN_ID = process.env.ADMIN_ID || "1431886140"; 
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+
+// ==========================================
+// 🎹 لوحات المفاتيح (Keyboards)
+// ==========================================
+
+const keyboards = {
+    main: {
+        keyboard: [
+            [{ text: "🌐 أدوات الشبكة" }, { text: "🔐 الأمن والتشفير" }],
+            [{ text: "🛠 أدوات المطورين" }, { text: "💰 خدمات عامة" }],
+            [{ text: "🤖 أدوات ذكية" }, { text: "ℹ️ حول البوت" }]
+        ],
+        resize_keyboard: true
+    },
+    network: {
+        keyboard: [
+            [{ text: "🔍 فحص DNS" }, { text: "🔒 فحص SSL" }],
+            [{ text: "🔗 فك رابط مختصر" }, { text: "🆙 حالة الموقع" }],
+            [{ text: "📑 استخراج الميتا" }, { text: "👤 Whois" }],
+            [{ text: "🔙 القائمة الرئيسية" }]
+        ],
+        resize_keyboard: true
+    },
+    security: {
+        keyboard: [
+            [{ text: "#️⃣ مولد MD5" }, { text: "#️⃣ مولد SHA256" }],
+            [{ text: "🔑 قوة الباسورد" }, { text: "🆔 مولد UUID" }],
+            [{ text: "🔣 تشفير URL" }, { text: "🔙 القائمة الرئيسية" }]
+        ],
+        resize_keyboard: true
+    },
+    dev: {
+        keyboard: [
+            [{ text: "📋 تنسيق JSON" }, { text: "🐙 معلومات GitHub" }],
+            [{ text: "🎨 تحويل ألوان" }, { text: "🔙 القائمة الرئيسية" }]
+        ],
+        resize_keyboard: true
+    },
+    general: {
+        keyboard: [
+            [{ text: "🪙 سعر العملات" }, { text: "🌤 الطقس" }],
+            [{ text: "📱 باركود QR" }, { text: "🔙 القائمة الرئيسية" }]
+        ],
+        resize_keyboard: true
+    },
+    ai: {
+        keyboard: [
+            [{ text: "💡 معلومة عشوائية" }, { text: "🔙 القائمة الرئيسية" }]
+        ],
+        resize_keyboard: true
+    }
+};
 
 // ==========================================
 // 🛠️ دوال المساعدة (Helper Functions)
@@ -20,92 +73,38 @@ async function checkDNS(domain) {
         const a = await dns.resolve4(domain).catch(() => []);
         const mx = await dns.resolveMx(domain).catch(() => []);
         const ns = await dns.resolveNs(domain).catch(() => []);
-        const txt = await dns.resolveTxt(domain).catch(() => []);
-
-        return `🌍 **سجلات DNS لـ ${domain}:**\n\n` +
-               `🔹 **A:** ${a.join(', ') || 'غير موجود'}\n` +
-               `🔹 **MX:** ${mx.map(m => m.exchange).join(', ') || 'غير موجود'}\n` +
-               `🔹 **NS:** ${ns.join(', ') || 'غير موجود'}\n` +
-               `🔹 **TXT:** ${txt.flat().join('\n').substring(0, 100) || 'غير موجود'}`;
-    } catch (e) { return "❌ لا يمكن جلب سجلات DNS لهذا النطاق."; }
+        return `🌍 **DNS لـ ${domain}:**\n🔹 **A:** ${a.join(', ')}\n🔹 **MX:** ${mx.map(m=>m.exchange).join(', ')}\n🔹 **NS:** ${ns.join(', ')}`;
+    } catch { return "❌ خطأ في النطاق."; }
 }
 
 // 2. فحص SSL
 function checkSSL(domain) {
     return new Promise((resolve) => {
         if (!domain.startsWith('https://')) domain = 'https://' + domain;
-        const url = new URL(domain);
-        const req = https.request({ host: url.hostname, port: 443, method: 'GET', agent: false, rejectUnauthorized: false }, (res) => {
-            const cert = res.connection.getPeerCertificate();
-            if (!cert || Object.keys(cert).length === 0) resolve("❌ لا توجد شهادة SSL.");
-            
-            const validTo = new Date(cert.valid_to);
-            const daysLeft = Math.floor((validTo - new Date()) / (1000 * 60 * 60 * 24));
-            
-            resolve(`🔒 **فحص SSL:**\n` +
-                    `🔹 **النطاق:** ${url.hostname}\n` +
-                    `🔹 **المصدر:** ${cert.issuer.O || cert.issuer.CN}\n` +
-                    `🔹 **ينتهي في:** ${validTo.toLocaleDateString()}\n` +
-                    `⏳ **الأيام المتبقية:** ${daysLeft} يوم`);
-        });
-        req.on('error', () => resolve("❌ خطأ في الاتصال بالسيرفر."));
-        req.end();
+        try {
+            const url = new URL(domain);
+            const req = https.request({ host: url.hostname, port: 443, method: 'GET', agent: false, rejectUnauthorized: false }, (res) => {
+                const cert = res.connection.getPeerCertificate();
+                if (!cert || !Object.keys(cert).length) resolve("❌ لا توجد شهادة.");
+                const validTo = new Date(cert.valid_to);
+                const daysLeft = Math.floor((validTo - new Date()) / (86400000));
+                resolve(`🔒 **SSL:**\n🔹 **المصدر:** ${cert.issuer.O}\n⏳ **الأيام:** ${daysLeft}`);
+            });
+            req.on('error', () => resolve("❌ خطأ اتصال."));
+            req.end();
+        } catch { resolve("❌ رابط غير صحيح."); }
     });
 }
 
-// 3. فك الروابط المختصرة
-async function expandLink(shortUrl) {
-    try {
-        const res = await axios.head(shortUrl, { maxRedirects: 10, validateStatus: false });
-        return `🔗 **الرابط الأصلي:**\n${res.request.res.responseUrl}`;
-    } catch (e) { return "❌ لا يمكن فك هذا الرابط."; }
-}
-
-// 4. استخراج الميتا
-async function scrapeMeta(url) {
-    if (!url.startsWith('http')) url = 'http://' + url;
-    try {
-        const { data } = await axios.get(url, { headers: { "User-Agent": "Bot" }, timeout: 5000 });
-        const title = data.match(/<title>(.*?)<\/title>/i)?.[1] || "لا يوجد";
-        const desc = data.match(/name="description" content="(.*?)"/i)?.[1] || "لا يوجد";
-        return `📑 **بيانات الموقع:**\n🔹 **العنوان:** ${title}\n🔹 **الوصف:** ${desc}`;
-    } catch (e) { return "❌ لا يمكن الوصول للموقع."; }
-}
-
-// 5. مدقق البريد (MX)
-async function validateEmail(email) {
-    const domain = email.split('@')[1];
-    if (!domain) return "❌ صيغة إيميل خاطئة.";
-    try {
-        const mx = await dns.resolveMx(domain);
-        return mx.length > 0 ? `✅ **الإيميل صالح:** الدومين ${domain} يمتلك سيرفرات بريد.` : `❌ **غير صالح:** الدومين لا يستقبل رسائل.`;
-    } catch (e) { return "❌ الدومين غير موجود."; }
-}
-
-// 6. سعر الكريبتو
-async function getCryptoPrice(coin) {
-    try {
-        const res = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${coin}&vs_currencies=usd`);
-        const price = res.data[coin]?.usd;
-        return price ? `💰 **سعر ${coin}:** $${price}` : "❌ عملة غير معروفة (جرب bitcoin, ethereum).";
-    } catch (e) { return "❌ الخدمة مشغولة حالياً."; }
-}
-
-// 7. الطقس (Open-Meteo)
+// 3. أدوات أخرى (مختصرة للأداء)
 async function getWeather(city) {
     try {
-        // البحث عن إحداثيات المدينة أولاً
         const geo = await axios.get(`https://geocoding-api.open-meteo.com/v1/search?name=${city}&count=1`);
-        if (!geo.data.results) return "❌ مدينة غير موجودة.";
+        if (!geo.data.results) return "❌ مدينة خاطئة.";
         const { latitude, longitude, name, country } = geo.data.results[0];
-        
-        const weather = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`);
-        const w = weather.data.current_weather;
-        
-        return `🌤 **الطقس في ${name}, ${country}:**\n` +
-               `🌡 **الحرارة:** ${w.temperature}°C\n` +
-               `💨 **الرياح:** ${w.windspeed} km/h`;
-    } catch (e) { return "❌ خطأ في خدمة الطقس."; }
+        const w = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`);
+        return `🌤 **${name}, ${country}:** ${w.data.current_weather.temperature}°C`;
+    } catch { return "❌ خدمة الطقس متوقفة."; }
 }
 
 // ==========================================
@@ -120,105 +119,115 @@ exports.handler = async function(event, context) {
 
         const chatId = body.message.chat.id;
         const text = body.message.text.trim();
-        const cmd = text.split(' ')[0].toLowerCase();
-        const arg = text.split(' ').slice(1).join(' ');
-
+        
         let reply = "";
+        let keyboard = null;
         let method = "sendMessage";
         let extra = { parse_mode: "Markdown" };
 
-        // --- قائمة الأوامر ---
-        switch (cmd) {
-            case "/start":
-                reply = "🛠 **أهلاً بك في البوت الشامل!**\nاكتب `/help` لعرض قائمة بـ 30 أداة متاحة.";
-                break;
+        // --- 1. معالجة القوائم (Navigation) ---
+        if (text === "/start" || text === "🔙 القائمة الرئيسية") {
+            reply = "👋 **أهلاً بك في البوت الشامل!**\nاختر قسماً من القائمة بالأسفل 👇";
+            keyboard = keyboards.main;
+        }
+        else if (text === "🌐 أدوات الشبكة") {
+            reply = "🌐 **قسم الشبكات:**\nاختر الأداة:";
+            keyboard = keyboards.network;
+        }
+        else if (text === "🔐 الأمن والتشفير") {
+            reply = "🔐 **قسم الأمن:**\nاختر الأداة:";
+            keyboard = keyboards.security;
+        }
+        else if (text === "🛠 أدوات المطورين") {
+            reply = "🛠 **قسم المطورين:**\nاختر الأداة:";
+            keyboard = keyboards.dev;
+        }
+        else if (text === "💰 خدمات عامة") {
+            reply = "💰 **خدمات عامة:**\nاختر الأداة:";
+            keyboard = keyboards.general;
+        }
+        else if (text === "🤖 أدوات ذكية") {
+            reply = "🤖 **ذكاء وترفيه:**\nاختر الأداة:";
+            keyboard = keyboards.ai;
+        }
+        else if (text === "ℹ️ حول البوت") {
+            reply = "👨‍💻 **AboElfadl Security Bot**\nإصدار: 2.0 (Serverless)\nتطوير: Mahmoud AboElfadl";
+            keyboard = keyboards.main;
+        }
 
-            case "/help":
-                reply = `📜 **قائمة الأوامر:**\n\n` +
-                        `🌐 **الشبكات:**\n` +
-                        `/dns [domain] - سجلات DNS\n` +
-                        `/ssl [domain] - فحص الشهادة\n` +
-                        `/unshort [url] - فك رابط\n` +
-                        `/isup [url] - حالة الموقع\n` +
-                        `/meta [url] - جلب الميتا\n` +
-                        `/whois [domain] - معلومات المالك\n` +
-                        `/mx [email] - فحص الإيميل\n\n` +
-                        `🔐 **الأمن:**\n` +
-                        `/md5 [text] - هاش MD5\n` +
-                        `/sha256 [text] - هاش SHA256\n` +
-                        `/pass [text] - قوة الباسورد\n` +
-                        `/uuid - مولد معرف فريد\n\n` +
-                        `🛠 **أدوات:**\n` +
-                        `/json [text] - تنسيق JSON\n` +
-                        `/color [hex] - تحويل ألوان\n` +
-                        `/git [user] - معلومات GitHub\n\n` +
-                        `💰 **عام:**\n` +
-                        `/coin [name] - سعر العملة\n` +
-                        `/qr [text] - صورة QR\n` +
-                        `/weather [city] - الطقس`;
-                break;
+        // --- 2. تعليمات الأزرار (Buttons Actions) ---
+        // بما أن البوت Stateless، الأزرار ستعطيك الأمر لتنسخه وتستخدمه
+        else if (text === "🔍 فحص DNS") reply = "💡 للاستخدام أرسل:\n`/dns google.com`";
+        else if (text === "🔒 فحص SSL") reply = "💡 للاستخدام أرسل:\n`/ssl google.com`";
+        else if (text === "🔗 فك رابط مختصر") reply = "💡 للاستخدام أرسل:\n`/unshort bit.ly/xxxx`";
+        else if (text === "🆙 حالة الموقع") reply = "💡 للاستخدام أرسل:\n`/isup google.com`";
+        else if (text === "📑 استخراج الميتا") reply = "💡 للاستخدام أرسل:\n`/meta google.com`";
+        else if (text === "👤 Whois") reply = "💡 للاستخدام أرسل:\n`/whois google.com`";
+        
+        else if (text === "#️⃣ مولد MD5") reply = "💡 للاستخدام أرسل:\n`/md5 النص_هنا`";
+        else if (text === "#️⃣ مولد SHA256") reply = "💡 للاستخدام أرسل:\n`/sha256 النص_هنا`";
+        else if (text === "🔑 قوة الباسورد") reply = "💡 للاستخدام أرسل:\n`/pass 123456`";
+        else if (text === "🆔 مولد UUID") { reply = `🆔 **UUID:** \`${crypto.randomUUID()}\``; } // تنفيذ مباشر
+        else if (text === "🔣 تشفير URL") reply = "💡 للاستخدام أرسل:\n`/urlenc النص`";
+        
+        else if (text === "📋 تنسيق JSON") reply = "💡 للاستخدام أرسل:\n`/json {كود_غير_منظم}`";
+        else if (text === "🐙 معلومات GitHub") reply = "💡 للاستخدام أرسل:\n`/git username`";
+        else if (text === "🎨 تحويل ألوان") reply = "💡 للاستخدام أرسل:\n`/color #ff0000`";
+        
+        else if (text === "🪙 سعر العملات") reply = "💡 للاستخدام أرسل:\n`/coin bitcoin`";
+        else if (text === "🌤 الطقس") reply = "💡 للاستخدام أرسل:\n`/weather Cairo`";
+        else if (text === "📱 باركود QR") reply = "💡 للاستخدام أرسل:\n`/qr النص_أو_الرابط`";
+        else if (text === "💡 معلومة عشوائية") { // تنفيذ مباشر
+             try { const f = await axios.get('https://uselessfacts.jsph.pl/random.json?language=en'); reply = `💡 **Fact:** ${f.data.text}`; }
+             catch { reply = "❌ خطأ."; }
+        }
 
-            // --- 🌐 الشبكات ---
-            case "/dns": reply = arg ? await checkDNS(arg) : "💡 الاستخدام: `/dns google.com`"; break;
-            case "/ssl": reply = arg ? await checkSSL(arg) : "💡 الاستخدام: `/ssl google.com`"; break;
-            case "/unshort": reply = arg ? await expandLink(arg) : "💡 الاستخدام: `/unshort bit.ly/...`"; break;
-            case "/meta": reply = arg ? await scrapeMeta(arg) : "💡 الاستخدام: `/meta google.com`"; break;
-            case "/mx": reply = arg ? await validateEmail(arg) : "💡 الاستخدام: `/mx mail@test.com`"; break;
-            case "/isup": 
-                if(!arg) { reply = "💡 الاستخدام: `/isup google.com`"; break; }
-                try { await axios.get(arg.startsWith('http')?arg:'http://'+arg, {timeout:3000}); reply = "✅ **الموقع يعمل!** (Up)"; } 
-                catch { reply = "🔴 **الموقع لا يعمل** أو محجوب."; }
-                break;
-            case "/whois": reply = arg ? `📄 **Whois:** https://who.is/whois/${arg}` : "💡 الاستخدام: `/whois google.com`"; break;
+        // --- 3. تنفيذ الأوامر (Command Execution) ---
+        else if (text.startsWith("/")) {
+            const cmd = text.split(' ')[0].toLowerCase();
+            const arg = text.split(' ').slice(1).join(' ');
 
-            // --- 🔐 الأمن ---
-            case "/md5": reply = arg ? `🔐 **MD5:** \`${crypto.createHash('md5').update(arg).digest('hex')}\`` : "اكتب النص"; break;
-            case "/sha256": reply = arg ? `🔐 **SHA256:** \`${crypto.createHash('sha256').update(arg).digest('hex')}\`` : "اكتب النص"; break;
-            case "/uuid": reply = `🆔 **UUID:** \`${crypto.randomUUID()}\``; break;
-            case "/urlenc": reply = arg ? `🔣 **Encoded:** \`${encodeURIComponent(arg)}\`` : "اكتب النص"; break;
-            case "/urldec": reply = arg ? `🔣 **Decoded:** \`${decodeURIComponent(arg)}\`` : "اكتب النص"; break;
-            case "/pass": 
-                const len = arg.length;
-                let strength = "ضعيفة";
-                if(len > 8 && /[A-Z]/.test(arg) && /[0-9]/.test(arg)) strength = "قوية";
-                reply = arg ? `🔑 **تحليل:** الطول ${len} - القوة: ${strength}` : "اكتب الباسورد"; 
-                break;
-
-            // --- 🛠 المطورين ---
-            case "/json": 
-                try { reply = `📋 **JSON:**\n\`\`\`json\n${JSON.stringify(JSON.parse(arg), null, 2)}\n\`\`\``; } 
-                catch { reply = "❌ JSON غير صالح."; }
-                break;
-            case "/git":
-                if(!arg) { reply = "💡 الاستخدام: `/git aboelfadl`"; break; }
-                try {
-                    const g = await axios.get(`https://api.github.com/users/${arg}`);
-                    reply = `🐙 **${g.data.login}**\n📦 Repos: ${g.data.public_repos}\n👥 Followers: ${g.data.followers}`;
-                } catch { reply = "❌ مستخدم غير موجود."; }
-                break;
-
-            // --- 💰 عام وترفيهي ---
-            case "/coin": reply = arg ? await getCryptoPrice(arg.toLowerCase()) : "💡 الاستخدام: `/coin bitcoin`"; break;
-            case "/weather": reply = arg ? await getWeather(arg) : "💡 الاستخدام: `/weather Cairo`"; break;
-            case "/fact": 
-                try { const f = await axios.get('https://uselessfacts.jsph.pl/random.json?language=en'); reply = `💡 **Fact:** ${f.data.text}`; }
-                catch { reply = "❌ خطأ."; }
-                break;
-            case "/qr":
-                if (!arg) { reply = "💡 الاستخدام: `/qr Hello`"; break; }
-                method = "sendPhoto";
-                extra = { caption: "📱 **QR Code الخاص بك**" };
-                // نرسل الرابط مباشرة كصورة
-                reply = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(arg)}`;
-                break;
-
-            default:
-                if (text.startsWith("/")) reply = "⚠️ أمر غير معروف. استخدم `/help`.";
+            switch (cmd) {
+                case "/dns": reply = arg ? await checkDNS(arg) : "⚠️ اكتب الدومين بعد الأمر."; break;
+                case "/ssl": reply = arg ? await checkSSL(arg) : "⚠️ اكتب الدومين بعد الأمر."; break;
+                case "/unshort": 
+                    try { const r = await axios.head(arg, {maxRedirects:10}); reply = `🔗 الأصل: ${r.request.res.responseUrl}`; } 
+                    catch { reply = "❌ خطأ."; } break;
+                case "/isup":
+                    try { await axios.get(arg.startsWith('http')?arg:'http://'+arg, {timeout:3000}); reply = "✅ يعمل (Up)"; }
+                    catch { reply = "🔴 لا يعمل (Down)"; } break;
+                case "/meta":
+                    try { const {data} = await axios.get(arg.startsWith('http')?arg:'http://'+arg, {headers:{"User-Agent":"Bot"},timeout:4000}); 
+                    const t = data.match(/<title>(.*?)<\/title>/i)?.[1]||"N/A"; reply = `📑 العنوان: ${t}`; } catch { reply = "❌ خطأ."; } break;
+                case "/whois": reply = `📄 **Whois:** https://who.is/whois/${arg}`; break;
+                
+                case "/md5": reply = `🔐 \`${crypto.createHash('md5').update(arg).digest('hex')}\``; break;
+                case "/sha256": reply = `🔐 \`${crypto.createHash('sha256').update(arg).digest('hex')}\``; break;
+                case "/pass": reply = `🔑 الطول: ${arg.length}`; break;
+                case "/urlenc": reply = `🔣 \`${encodeURIComponent(arg)}\``; break;
+                
+                case "/json": try { reply = `\`\`\`json\n${JSON.stringify(JSON.parse(arg),null,2)}\n\`\`\``; } catch { reply = "❌ JSON خطأ"; } break;
+                case "/git": try { const g = await axios.get(`https://api.github.com/users/${arg}`); reply = `🐙 **${g.data.login}**\nRepos: ${g.data.public_repos}`; } catch { reply = "❌ غير موجود"; } break;
+                
+                case "/coin": try { const c = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${arg}&vs_currencies=usd`); reply = `💰 $${c.data[arg].usd}`; } catch { reply = "❌ عملة خطأ"; } break;
+                case "/weather": reply = arg ? await getWeather(arg) : "⚠️ اكتب المدينة."; break;
+                case "/qr": 
+                    if(!arg) { reply = "⚠️ اكتب النص."; break; }
+                    method = "sendPhoto"; reply = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(arg)}`; break;
+                
+                default: reply = "⚠️ أمر غير معروف.";
+            }
+        }
+        else {
+            // رسالة افتراضية لو النص مش أمر ومش زرار
+            reply = "⚠️ اختر من القائمة أو أرسل أمراً يبدأ بـ `/`";
         }
 
         // إرسال الرد
         if (reply) {
             let payload = { chat_id: chatId, ...extra };
+            if (keyboard) payload.reply_markup = keyboard;
+            
             if (method === "sendPhoto") payload.photo = reply;
             else payload.text = reply;
 
